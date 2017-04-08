@@ -191,7 +191,7 @@ var Chip8 = (function () {
 
 	var getRom = function() {
 		xhr = new XMLHttpRequest();
-        xhr.open("GET", "./static/invaders.rom", true);
+        xhr.open("GET", "./invaders.rom", true);
         xhr.responseType = "arraybuffer";
 
         xhr.onload = function () {

@@ -249,7 +249,6 @@ var Chip8 = (function () {
     	document.getElementById('btnDebug').addEventListener('click', function(event) {
     		isDebugMode = !isDebugMode;
     		btnDebug = document.getElementById('btnDebug');
-    		console.log(btnDebug);
     		btnDebug.innerHTML = 'Debug Mode ' + (isDebugMode ? "OFF" : "ON");
     	});
     	document.getElementById('doStep').addEventListener('click', function(event) {
@@ -398,7 +397,7 @@ var Chip8 = (function () {
 
 	var getRom = function(romName) {
 		xhr = new XMLHttpRequest();
-		romPath = "./static/" + romName;
+		romPath = "./roms/" + romName;
         xhr.open("GET", romPath, true);
         xhr.overrideMimeType("text/plain; charset=x-user-defined");
 
@@ -988,7 +987,6 @@ var Chip8 = (function () {
 		v[1] = 0x01;
 		emulateCycle();
 		if(pc != 0x202) {
-			console.log(pc.toString(16))
 			throw new Error('Error in skip not equal, equal');
 		}
 		initCPU();
@@ -1236,14 +1234,10 @@ var Chip8 = (function () {
 		expectedDisplay[256] = 1; expectedDisplay[257] = 1; expectedDisplay[258] = 1; expectedDisplay[259] = 1;
 		for(var ii = 0; ii < DISPLAY_WIDTH*DISPLAY_HEIGHT; ii++) {
 			if(expectedDisplay[ii] != display[ii]) {
-				console.log(ii);
-				console.log(expectedDisplay[ii]);
-				console.log(display[ii]);
 				throw new Error('Error in display sprite, carry flag set');
 			}
 		}
 		if(v[0xF] != 1) {
-			console.log(v[0xF]);
 			throw new Error('Error in display sprite, carry flag set');
 		}
 		initCPU();

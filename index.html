@@ -1,13 +1,681 @@
-<html>
-	<body>
-		<script src="./chip8.js"></script>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CHIP-8 Emulator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --green: #39ff6e;
+      --green-dim: #1a7a3a;
+      --green-glow: rgba(57,255,110,0.18);
+      --green-faint: rgba(57,255,110,0.07);
+      --bg: #05100a;
+      --bg2: #081410;
+      --border: #1a4028;
+      --amber: #ffb347;
+    }
 
-		<div id="emulator"></div>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-		<script type='text/javascript'>
-			window.onload = function() {
-				Chip8.init('emulator');
-			}
-		</script>
-	</body>
+    body {
+      background: var(--bg);
+      color: var(--green);
+      font-family: 'Share Tech Mono', monospace;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 32px 16px 48px;
+      /* scanline overlay */
+      background-image:
+        repeating-linear-gradient(
+          to bottom,
+          transparent,
+          transparent 2px,
+          rgba(0,0,0,0.18) 2px,
+          rgba(0,0,0,0.18) 4px
+        );
+    }
+
+    /* ── Header ───────────────────────────────────────────── */
+    header {
+      width: 100%;
+      max-width: 900px;
+      display: flex;
+      align-items: baseline;
+      gap: 18px;
+      margin-bottom: 28px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 14px;
+    }
+    header h1 {
+      font-family: 'VT323', monospace;
+      font-size: 2.8rem;
+      letter-spacing: 0.12em;
+      text-shadow: 0 0 14px var(--green), 0 0 30px rgba(57,255,110,0.4);
+      line-height: 1;
+    }
+    header .tagline {
+      font-size: 0.7rem;
+      color: var(--green-dim);
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+    }
+    .cursor-blink {
+      display: inline-block;
+      width: 0.55em;
+      height: 1.1em;
+      background: var(--green);
+      vertical-align: text-bottom;
+      margin-left: 3px;
+      animation: blink 1s step-end infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* ── Main layout ──────────────────────────────────────── */
+    .shell {
+      width: 100%;
+      max-width: 900px;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 20px;
+    }
+
+    /* ── Panel base ───────────────────────────────────────── */
+    .panel {
+      border: 1px solid var(--border);
+      background: var(--bg2);
+      position: relative;
+    }
+    .panel::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, var(--green-faint) 0%, transparent 60%);
+      pointer-events: none;
+    }
+    .panel-title {
+      font-family: 'VT323', monospace;
+      font-size: 0.85rem;
+      letter-spacing: 0.25em;
+      color: var(--green-dim);
+      text-transform: uppercase;
+      padding: 6px 12px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(57,255,110,0.04);
+    }
+    .panel-title span {
+      color: var(--green);
+      text-shadow: 0 0 8px var(--green);
+    }
+
+    /* ── Screen panel ─────────────────────────────────────── */
+    .screen-panel {
+      display: flex;
+      flex-direction: column;
+    }
+    .screen-wrap {
+      padding: 14px;
+      display: flex;
+      justify-content: center;
+    }
+    #emulator canvas {
+      display: block;
+      image-rendering: pixelated;
+      border: 1px solid var(--green-dim);
+      box-shadow:
+        0 0 0 1px rgba(57,255,110,0.12),
+        0 0 24px rgba(57,255,110,0.12),
+        inset 0 0 60px rgba(0,0,0,0.5);
+    }
+
+    /* ── Sidebar ──────────────────────────────────────────── */
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      min-width: 220px;
+    }
+
+    /* ── Select ───────────────────────────────────────────── */
+    .game-select-wrap {
+      padding: 12px;
+    }
+    .field-label {
+      display: block;
+      font-size: 0.65rem;
+      letter-spacing: 0.2em;
+      color: var(--green-dim);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    select {
+      width: 100%;
+      background: #081a10;
+      border: 1px solid var(--green-dim);
+      color: var(--green);
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.85rem;
+      padding: 7px 10px;
+      outline: none;
+      cursor: pointer;
+      appearance: none;
+      -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2339ff6e'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    select:hover, select:focus {
+      border-color: var(--green);
+      box-shadow: 0 0 8px var(--green-glow);
+    }
+    select option { background: #081a10; }
+
+    /* ── Controls cheatsheet ─────────────────────────────── */
+    .controls-wrap {
+      padding: 12px;
+    }
+    .controls-intro {
+      font-size: 0.68rem;
+      color: var(--green-dim);
+      line-height: 1.5;
+      margin-bottom: 10px;
+    }
+    .keymap-table {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      margin-bottom: 12px;
+    }
+    .keymap-row {
+      display: flex;
+      gap: 3px;
+    }
+    .kbd {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 24px;
+      border: 1px solid var(--green-dim);
+      border-bottom: 2px solid var(--green-dim);
+      border-radius: 3px;
+      font-size: 0.7rem;
+      color: var(--green-dim);
+      background: rgba(57,255,110,0.03);
+      flex-shrink: 0;
+    }
+    .kbd-inline {
+      width: auto;
+      height: auto;
+      padding: 1px 5px;
+      font-size: 0.65rem;
+      vertical-align: baseline;
+      position: relative;
+      top: -1px;
+    }
+    .controls-note {
+      font-size: 0.65rem;
+      color: var(--green-dim);
+      line-height: 1.6;
+      border-top: 1px solid var(--border);
+      padding-top: 8px;
+    }
+    .controls-note strong {
+      color: var(--green);
+      display: block;
+      font-size: 0.7rem;
+      margin-bottom: 2px;
+    }
+
+    /* ── Debugger panel ───────────────────────────────────── */
+    .debugger-panel {
+      grid-column: 1 / -1;
+    }
+    .debugger-inner {
+      padding: 14px;
+    }
+    .debug-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+
+    /* ── Buttons ──────────────────────────────────────────── */
+    button {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.75rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 7px 16px;
+      border: 1px solid var(--green-dim);
+      background: transparent;
+      color: var(--green);
+      cursor: pointer;
+      transition: all 0.15s;
+      position: relative;
+    }
+    button:hover {
+      background: var(--green-glow);
+      border-color: var(--green);
+      box-shadow: 0 0 10px var(--green-glow);
+    }
+    button:active { transform: scale(0.97); }
+    button.active {
+      background: rgba(57,255,110,0.18);
+      border-color: var(--green);
+      color: var(--green);
+      box-shadow: 0 0 12px var(--green-glow);
+    }
+    #btnDebug { min-width: 150px; }
+
+    /* ── Opcode display ───────────────────────────────────── */
+    .opcode-row {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .opcode-label {
+      font-size: 0.65rem;
+      letter-spacing: 0.18em;
+      color: var(--green-dim);
+      text-transform: uppercase;
+    }
+    #opcode {
+      font-family: 'VT323', monospace;
+      font-size: 1.1rem;
+      color: var(--amber);
+      text-shadow: 0 0 8px rgba(255,179,71,0.5);
+      min-width: 200px;
+    }
+
+    /* ── Register tables ──────────────────────────────────── */
+    .reg-section { margin-bottom: 12px; }
+    .reg-section-label {
+      font-size: 0.6rem;
+      letter-spacing: 0.22em;
+      color: var(--green-dim);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .reg-table {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .reg-cell {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-width: 38px;
+    }
+    .reg-name {
+      font-size: 0.58rem;
+      letter-spacing: 0.1em;
+      color: var(--green-dim);
+      text-transform: uppercase;
+      margin-bottom: 2px;
+    }
+    .reg-val {
+      font-family: 'VT323', monospace;
+      font-size: 1.05rem;
+      color: var(--green);
+      text-shadow: 0 0 6px var(--green-glow);
+      background: rgba(57,255,110,0.06);
+      border: 1px solid var(--border);
+      width: 100%;
+      text-align: center;
+      padding: 2px 4px;
+      min-height: 28px;
+      line-height: 1.4;
+      transition: background 0.15s, color 0.15s;
+    }
+    .reg-val.changed {
+      background: rgba(57,255,110,0.2);
+      color: #fff;
+    }
+
+    /* ── Status bar ───────────────────────────────────────── */
+    footer {
+      width: 100%;
+      max-width: 900px;
+      margin-top: 16px;
+      border-top: 1px solid var(--border);
+      padding-top: 8px;
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.62rem;
+      color: var(--green-dim);
+      letter-spacing: 0.15em;
+    }
+    footer a {
+      color: var(--green-dim);
+      text-decoration: none;
+      letter-spacing: 0.15em;
+      transition: color 0.15s;
+    }
+    footer a:hover {
+      color: var(--green);
+      text-shadow: 0 0 6px var(--green-glow);
+    }
+    .footer-links {
+      display: flex;
+      gap: 16px;
+    }
+    .status-dot {
+      display: inline-block;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--green-dim);
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .status-dot.on {
+      background: var(--green);
+      box-shadow: 0 0 6px var(--green);
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%,100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    /* ── CRT vignette ─────────────────────────────────────── */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background: radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.55) 100%);
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>CHIP-8</h1>
+    <span class="tagline">Emulator v1.0 // Virtual Machine</span>
+  </header>
+
+  <div class="shell">
+
+    <!-- Screen -->
+    <div class="panel screen-panel">
+      <div class="panel-title">// <span>Display</span></div>
+      <div class="screen-wrap">
+        <div id="emulator"></div>
+      </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+
+      <!-- Game select -->
+      <div class="panel">
+        <div class="panel-title">// <span>Load ROM</span></div>
+        <div class="game-select-wrap">
+          <label class="field-label" for="gameSelect">Select program</label>
+          <select id="gameSelect">
+            <option value="" disabled selected>-- choose --</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="panel">
+        <div class="panel-title">// <span>Controls</span></div>
+        <div class="controls-wrap">
+          <p class="controls-intro">The CHIP-8 keypad maps to your keyboard as follows:</p>
+          <div class="keymap-table">
+            <div class="keymap-row"><span class="kbd">1</span><span class="kbd">2</span><span class="kbd">3</span><span class="kbd">4</span></div>
+            <div class="keymap-row"><span class="kbd">Q</span><span class="kbd">W</span><span class="kbd">E</span><span class="kbd">R</span></div>
+            <div class="keymap-row"><span class="kbd">A</span><span class="kbd">S</span><span class="kbd">D</span><span class="kbd">F</span></div>
+            <div class="keymap-row"><span class="kbd">Z</span><span class="kbd">X</span><span class="kbd">C</span><span class="kbd">V</span></div>
+          </div>
+          <div class="controls-note" id="gameControls">Select a game to see its controls.</div>
+        </div>
+      </div>
+
+    </div><!-- /sidebar -->
+
+    <!-- Debugger -->
+    <div class="panel debugger-panel">
+      <div class="panel-title">// <span>Debugger</span></div>
+      <div class="debugger-inner">
+
+        <div class="debug-controls">
+          <button id="btnDebug">⏸ Pause Execution</button>
+          <button id="doStep">▶ Next Instruction</button>
+          <div class="opcode-row">
+            <span class="opcode-label">Next opcode:</span>
+            <span id="opcode">—</span>
+          </div>
+        </div>
+
+        <!-- CPU registers -->
+        <div class="reg-section">
+          <div class="reg-section-label">CPU Registers</div>
+          <div class="reg-table">
+            <div class="reg-cell"><span class="reg-name">PC</span><span class="reg-val" id="pc">200</span></div>
+            <div class="reg-cell"><span class="reg-name">SP</span><span class="reg-val" id="sp">0</span></div>
+            <div class="reg-cell"><span class="reg-name">I</span><span class="reg-val" id="i">0</span></div>
+            <div class="reg-cell"><span class="reg-name">DT</span><span class="reg-val" id="dt">0</span></div>
+            <div class="reg-cell"><span class="reg-name">ST</span><span class="reg-val" id="st">0</span></div>
+          </div>
+        </div>
+
+        <!-- V registers -->
+        <div class="reg-section">
+          <div class="reg-section-label">V Registers</div>
+          <div class="reg-table">
+            <div class="reg-cell"><span class="reg-name">V0</span><span class="reg-val" id="v0">0</span></div>
+            <div class="reg-cell"><span class="reg-name">V1</span><span class="reg-val" id="v1">0</span></div>
+            <div class="reg-cell"><span class="reg-name">V2</span><span class="reg-val" id="v2">0</span></div>
+            <div class="reg-cell"><span class="reg-name">V3</span><span class="reg-val" id="v3">0</span></div>
+            <div class="reg-cell"><span class="reg-name">V4</span><span class="reg-val" id="v4">0</span></div>
+            <div class="reg-cell"><span class="reg-name">V5</span><span class="reg-val" id="v5">0</span></div>
+            <div class="reg-cell"><span class="reg-name">V6</span><span class="reg-val" id="v6">0</span></div>
+            <div class="reg-cell"><span class="reg-name">V7</span><span class="reg-val" id="v7">0</span></div>
+            <div class="reg-cell"><span class="reg-name">V8</span><span class="reg-val" id="v8">0</span></div>
+            <div class="reg-cell"><span class="reg-name">V9</span><span class="reg-val" id="v9">0</span></div>
+            <div class="reg-cell"><span class="reg-name">VA</span><span class="reg-val" id="va">0</span></div>
+            <div class="reg-cell"><span class="reg-name">VB</span><span class="reg-val" id="vb">0</span></div>
+            <div class="reg-cell"><span class="reg-name">VC</span><span class="reg-val" id="vc">0</span></div>
+            <div class="reg-cell"><span class="reg-name">VD</span><span class="reg-val" id="vd">0</span></div>
+            <div class="reg-cell"><span class="reg-name">VE</span><span class="reg-val" id="ve">0</span></div>
+            <div class="reg-cell"><span class="reg-name">VF</span><span class="reg-val" id="vf">0</span></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div><!-- /shell -->
+
+  <footer>
+    <span><span class="status-dot" id="statusDot"></span><span id="statusText">NO ROM LOADED</span></span>
+    <span>CHIP-8 // 4KB RAM // 64×32 PX // 60Hz</span>
+    <span class="footer-links">
+      <a href="https://www.johngerace.com/chip8js" target="_blank">© 2017-2026 John Gerace</a>
+      <a href="https://github.com/jgerace/chip8js" target="_blank">GitHub</a>
+      <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank">GPL v3</a>
+    </span>
+  </footer>
+
+  <script src="chip8.js"></script>
+  <script>
+    // ── Bootstrap ───────────────────────────────────────────
+    Chip8.init('emulator');
+
+    // ── ROM data ────────────────────────────────────────────
+    const roms = {
+      '7-beep.ch8': {
+        title: 'Test',
+        instructions: 'Use the keys to move the blank space around the board, which will shift the tiles in the appropriate direction.'
+      },
+      '15PUZZLE': {
+        title: '15 Puzzle',
+        instructions: 'Use the keys to move the blank space around the board, which will shift the tiles in the appropriate direction.'
+      },
+      'BLINKY': {
+        title: 'Blinky (Pac-Man)',
+        instructions: 'Move with <kbd>3</kbd> (up), <kbd>A</kbd> (left), <kbd>S</kbd> (right), <kbd>E</kbd> (down).'
+      },
+      'BLITZ': {
+        title: 'Blitz',
+        instructions: 'Press <kbd>W</kbd> to drop a bomb. Fly left to right, drop bombs to destroy towers before you crash.'
+      },
+      'BRIX': {
+        title: 'Brix (Breakout)',
+        instructions: 'Move the paddle left with <kbd>Q</kbd> and right with <kbd>E</kbd>.'
+      },
+      'CONNECT4': {
+        title: 'Connect 4',
+        instructions: 'Select a column using <kbd>Q</kbd> (left) and <kbd>E</kbd> (right), then drop your coin with <kbd>W</kbd>.'
+      },
+      'GUESS': {
+        title: 'Guess',
+        instructions: 'Think of a number between 1 and 63. Press <kbd>W</kbd> when you see it on a board, or any other key if not.'
+      },
+      'HIDDEN': {
+        title: 'Hidden (Memory)',
+        instructions: 'Use <kbd>W</kbd> / <kbd>A</kbd> / <kbd>E</kbd> / <kbd>S</kbd> to move the cursor, and <kbd>Q</kbd> to flip a tile. Find all matching pairs.'
+      },
+      'IBM': {
+        title: 'IBM Logo',
+        instructions: 'No controls — this is a display demo.'
+      },
+      'INVADERS': {
+        title: 'Space Invaders',
+        instructions: 'Press <kbd>W</kbd> to start. Move with <kbd>Q</kbd> (left) and <kbd>E</kbd> (right). Shoot with <kbd>W</kbd>.'
+      },
+      'KALEID': {
+        title: 'Kaleidoscope',
+        instructions: 'No controls — this is a generative display demo.'
+      },
+      'MAZE': {
+        title: 'Maze',
+        instructions: 'No controls — watch a random maze being drawn.'
+      },
+      'MERLIN': {
+        title: 'Merlin (Simon)',
+        instructions: 'Watch the sequence, then repeat it. Use <kbd>Q</kbd> and <kbd>W</kbd> for the top two squares, <kbd>1</kbd> and <kbd>2</kbd> for the bottom two.'
+      },
+      'MISSILE': {
+        title: 'Missile',
+        instructions: 'Fire with <kbd>S</kbd>. You have 12 shots — hit all 8 targets.'
+      },
+      'PONG': {
+        title: 'Pong',
+        instructions: 'Player 1: <kbd>1</kbd> (up), <kbd>Q</kbd> (down). Player 2: <kbd>4</kbd> (up), <kbd>R</kbd> (down).'
+      },
+      'PONG2': {
+        title: 'Pong 2',
+        instructions: 'Player 1: <kbd>1</kbd> (up), <kbd>Q</kbd> (down). Player 2: <kbd>4</kbd> (up), <kbd>R</kbd> (down).'
+      },
+      'PUZZLE': {
+        title: 'Puzzle',
+        instructions: 'Use number keys to interact with the puzzle pieces.'
+      },
+      'SYZYGY': {
+        title: 'Syzygy',
+        instructions: 'Move up with <kbd>3</kbd>, left with <kbd>A</kbd>, right with <kbd>S</kbd>, and down with <kbd>E</kbd>. Exit to score with <kbd>C</kbd>. Continue game with <kbd>V</kbd>'
+      },
+      'TANK': {
+        title: 'Tank',
+        instructions: 'Player 1: <kbd>S</kbd> for up / <kbd>2</kbd> for down / <kbd>E</kbd> for right / <kbd>Q</kbd> for left, <kbd>W</kbd> to fire.'
+      },
+      'TETRIS': {
+        title: 'Tetris',
+        instructions: 'Rotate with <kbd>Q</kbd>. Move left with <kbd>W</kbd>, right with <kbd>E</kbd>. Drop with <kbd>A</kbd>.'
+      },
+      'TICTAC': {
+        title: 'Tic-Tac-Toe',
+        instructions: 'Place your mark using: <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> (top row), <kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> (middle row), <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> (bottom row).'
+      },
+      'UFO': {
+        title: 'UFO',
+        instructions: 'Fire left with <kbd>Q</kbd>, right with <kbd>E</kbd>. Fire up with <kbd>W</kbd>. Shoot the UFOs before they get past you.'
+      },
+      'VBRIX': {
+        title: 'Vertical Brix',
+        instructions: 'Move the paddle up with <kbd>1</kbd> and down with <kbd>Q</kbd>.'
+      },
+      'VERS': {
+        title: 'Vers',
+        instructions: 'Player 1: <kbd>A</kbd>, up / <kbd>1</kbd>, left / <kbd>2</kbd>, right / <kbd>Z</kbd>, down. Player 2: <kbd>4</kbd>, up / <kbd>C</kbd>, left / <kbd>V</kbd>, right / <kbd>R</kbd>, down. Avoid hitting walls and each other.'
+      },
+      'WIPEOFF': {
+        title: 'Wipeoff',
+        instructions: 'Move the paddle left with <kbd>Q</kbd> and right with <kbd>E</kbd>. Clear all the bricks.'
+      },
+    };
+
+        // ── Populate dropdown from roms data ───────────────────
+    const gameSelect = document.getElementById('gameSelect');
+    Object.entries(roms).forEach(([key, rom]) => {
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = rom.title;
+      gameSelect.appendChild(opt);
+    });
+
+    // ── Status indicator ───────────────────────────────────
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
+    const gameControls = document.getElementById('gameControls');
+
+    function kbdify(str) {
+      // Replace <kbd>X</kbd> with styled spans matching our .kbd-inline style
+      return str.replace(/<kbd>(.*?)<\/kbd>/g, '<span class="kbd kbd-inline">$1</span>');
+    }
+
+    document.getElementById('gameSelect').addEventListener('change', function() {
+      this.blur();
+      const name = this.options[this.selectedIndex].value;
+      statusDot.classList.add('on');
+      statusText.textContent = 'RUNNING: ' + name;
+
+      const info = roms[name];
+      if (info) {
+        gameControls.innerHTML = '<strong>' + info.title + '</strong>' + kbdify(info.instructions);
+      } else {
+        gameControls.innerHTML = 'No control information available for this game.';
+      }
+    });
+
+    // ── Debug button visual state ───────────────────────────
+    const btnDebug = document.getElementById('btnDebug');
+    btnDebug.addEventListener('click', function() {
+      // isDebugMode=true means paused; button shows what clicking will DO next
+      const paused = btnDebug.classList.toggle('active');
+      btnDebug.textContent = paused ? '▶ Resume Execution' : '⏸ Pause Execution';
+    });
+
+    // ── Register flash animation on change ─────────────────
+    const regIds = ['pc','sp','i','dt','st','v0','v1','v2','v3','v4','v5','v6','v7','v8','v9','va','vb','vc','vd','ve','vf'];
+    const prevVals = {};
+    function flashChanged() {
+      regIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const cur = el.textContent;
+        if (prevVals[id] !== undefined && prevVals[id] !== cur) {
+          el.classList.add('changed');
+          setTimeout(() => el.classList.remove('changed'), 200);
+        }
+        prevVals[id] = cur;
+      });
+      requestAnimationFrame(flashChanged);
+    }
+    requestAnimationFrame(flashChanged);
+  </script>
+</body>
 </html>

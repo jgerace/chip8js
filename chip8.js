@@ -14,6 +14,7 @@ var Chip8 = (function () {
 	var sp = 0;
 	var stack = new Array(16);
 	var drawFlag = false;
+	var vblank = false;
 
 	var display = new Array(DISPLAY_WIDTH * DISPLAY_HEIGHT);
 	var screen;
@@ -24,6 +25,12 @@ var Chip8 = (function () {
 	var isDebugMode = false;
 	var doStep = false;
 	var keyPresses = {};
+	var waitKeyReleased = null;
+
+	var audioCtx = null;
+	var beepOscillator = null;
+	var beepGain = null;
+	var isBeeping = false;
 
 	var displayChars = [
 		0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
@@ -44,6 +51,8 @@ var Chip8 = (function () {
 		0xF0, 0x80, 0xF0, 0x80, 0x80  // F
 	];
 
+	var emulator;
+
 	var init = function (elementId) {
 		window.requestAnimationFrame = window.requestAnimationFrame
 									    || window.mozRequestAnimationFrame
@@ -51,7 +60,7 @@ var Chip8 = (function () {
 									    || window.msRequestAnimationFrame
 									    || function(f){return setTimeout(f, 1000/60)}
 
-		var emulator = document.getElementById(elementId);
+		emulator = document.getElementById(elementId);
 
 		initScreen();
 	}
@@ -66,12 +75,22 @@ var Chip8 = (function () {
 
 		resetScreen();
 
-		createGameNav(emulator);
-		createDebugger(emulator);
+		// UI panels are defined in chip8.html; wire up button listeners
+		document.getElementById('gameSelect').addEventListener('change', function () {
+			var sel = document.getElementById('gameSelect');
+			initEmulator(sel.options[sel.selectedIndex].value);
+		});
+		document.getElementById('btnDebug').addEventListener('click', function() {
+			isDebugMode = !isDebugMode;
+		});
+		document.getElementById('doStep').addEventListener('click', function() {
+			doStep = true;
+		});
 	}
 
 	var initEmulator = function (romName) {
 		initCPU();
+		if (!audioCtx) initAudio();
 		initKeyMap();
 		getRom(romName);
 	}
@@ -103,7 +122,8 @@ var Chip8 = (function () {
 		pc = 0x200;
 		sp = 0;
 
-		keyPresses = {}
+		keyPresses = {};
+		waitKeyReleased = null;
 	}
 
 	var resetScreen = function() {
@@ -115,146 +135,7 @@ var Chip8 = (function () {
     		DISPLAY_HEIGHT * PIXEL_SIZE);
     }
 
-    var createGameNav = function(emulatorElement) {
-    	divGames = document.createElement('div');
-    	gamesHTML = '\
-    		<select id="gameSelect">\
-    			<option value="" disabled selected>Select a game</option>\
-    			<option value="15PUZZLE">15PUZZLE</option>\
-    			<option value="BLINKY">BLINKY</option>\
-    			<option value="BLITZ">BLITZ</option>\
-    			<option value="BRIX">BRIX</option>\
-    			<option value="CONNECT4">CONNECT4</option>\
-    			<option value="GUESS">GUESS</option>\
-    			<option value="HIDDEN">HIDDEN</option>\
-    			<option value="IBM">IBM</option>\
-    			<option value="INVADERS">INVADERS</option>\
-    			<option value="KALEID">KALEID</option>\
-    			<option value="MAZE">MAZE</option>\
-    			<option value="MERLIN">MERLIN</option>\
-    			<option value="MISSILE">MISSILE</option>\
-    			<option value="PONG">PONG</option>\
-    			<option value="PONG2">PONG2</option>\
-    			<option value="PUZZLE">PUZZLE</option>\
-    			<option value="SYZYGY">SYZYGY</option>\
-    			<option value="TANK">TANK</option>\
-    			<option value="TETRIS">TETRIS</option>\
-    			<option value="TICTAC">TICTAC</option>\
-    			<option value="UFO">UFO</option>\
-    			<option value="VBRIX">VBRIX</option>\
-    			<option value="VERS">VERS</option>\
-    			<option value="WIPEOFF">WIPEOFF</option>\
-    		</select>\
-    	'
-    	divGames.innerHTML = gamesHTML;
-    	emulatorElement.append(divGames);
 
-    	div = document.createElement('div');
-    	instructionsHTML = '\
-			<h3>Controls</h3>\
-			<code>\
-			1 | 2 | 3 | 4<br>\
-			Q | W | E | R<br>\
-			A | S | D | F<br>\
-			Z | X | C | V<br>\
-			</code>\
-			<p>Instructions differ for each game</p>\
-			<h3>Controls for INVADERS</h3>\
-			<p>Hit W to start</p>\
-			<p>Q - Move Left<br>\
-			W - Shoot<br>\
-			E - Move Right</p>\
-		'
-    	div.innerHTML = instructionsHTML;
-    	emulatorElement.append(div);
-
-
-    	document.getElementById('gameSelect').addEventListener('change', function () {
-    		gameSelect = document.getElementById('gameSelect');
-    		initEmulator(gameSelect.options[gameSelect.selectedIndex].value);
-    	});
-    }
-
-    var createDebugger = function(emulatorElement) {
-    	divDebug = document.createElement('div');
-    	debuggerHTML = '\
-    		<button id="btnDebug">Debug Mode ON</button>\
-    		<br/><br/>\
-    		<button id="doStep">Next Instruction</button>\
-    		<br/><br/>\
-    		<b>Next opcode:</b>\
-    		<p id="opcode"></p>\
-    		<table>\
-    			<tr>\
-    				<thead>\
-    					<td><b>PC</b></td>\
-    					<td><b>SP</b></td>\
-    					<td><b>I</b></td>\
-    					<td><b>DT</b></td>\
-    					<td><b>ST</b></td>\
-    				</thead>\
-    			</tr>\
-    			<tr>\
-					<td id="pc"></td>\
-					<td id="sp"></td>\
-					<td id="i"></td>\
-					<td id="dt"></td>\
-					<td id="st"></td>\
-    			</tr>\
-    		</table>\
-    		<table>\
-    			<tr>\
-    				<thead>\
-    					<td><b>V0</b></td>\
-    					<td><b>V1</b></td>\
-    					<td><b>V2</b></td>\
-    					<td><b>V3</b></td>\
-    					<td><b>V4</b></td>\
-    					<td><b>V5</b></td>\
-    					<td><b>V6</b></td>\
-    					<td><b>V7</b></td>\
-    					<td><b>V8</b></td>\
-    					<td><b>V9</b></td>\
-    					<td><b>VA</b></td>\
-    					<td><b>VB</b></td>\
-    					<td><b>VC</b></td>\
-    					<td><b>VD</b></td>\
-    					<td><b>VE</b></td>\
-    					<td><b>VF</b></td>\
-    				</thead>\
-    			</tr>\
-    			<tr>\
-					<td id="v0"></td>\
-					<td id="v1"></td>\
-					<td id="v2"></td>\
-					<td id="v3"></td>\
-					<td id="v4"></td>\
-					<td id="v5"></td>\
-					<td id="v6"></td>\
-					<td id="v7"></td>\
-					<td id="v8"></td>\
-					<td id="v9"></td>\
-					<td id="va"></td>\
-					<td id="vb"></td>\
-					<td id="vc"></td>\
-					<td id="vd"></td>\
-					<td id="ve"></td>\
-					<td id="vf"></td>\
-    			</tr>\
-    		</table>\
-    	'
-    	divDebug.innerHTML = debuggerHTML;
-    	emulatorElement.append(divDebug);
-
-    	document.getElementById('btnDebug').addEventListener('click', function(event) {
-    		isDebugMode = !isDebugMode;
-    		btnDebug = document.getElementById('btnDebug');
-    		btnDebug.innerHTML = 'Debug Mode ' + (isDebugMode ? "OFF" : "ON");
-    	});
-    	document.getElementById('doStep').addEventListener('click', function(event) {
-    		doStep = true;
-    	});
-    }
 
     var updateDebuggerState = function() {
     	opcodeElem = document.getElementById('opcode');
@@ -356,6 +237,34 @@ var Chip8 = (function () {
     		PIXEL_SIZE);
     }
 
+    var initAudio = function() {
+		audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+		beepOscillator = audioCtx.createOscillator();
+		beepOscillator.type = 'square';
+		beepOscillator.frequency.setValueAtTime(440, audioCtx.currentTime);
+
+		beepGain = audioCtx.createGain();
+		beepGain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+
+		beepOscillator.connect(beepGain);
+		// Note: beepGain is NOT connected to destination yet — connecting it is what starts the beep
+		beepOscillator.start();
+	}
+
+	var startBeep = function() {
+		if (!audioCtx || isBeeping) return;
+		if (audioCtx.state === 'suspended') audioCtx.resume();
+		beepGain.connect(audioCtx.destination);
+		isBeeping = true;
+	}
+
+	var stopBeep = function() {
+		if (!audioCtx || !isBeeping) return;
+		beepGain.disconnect();
+		isBeeping = false;
+	}
+
     var initKeyMap = function() {
     	var keyMap = {
 			88: 0x0, // x
@@ -376,7 +285,12 @@ var Chip8 = (function () {
 			86: 0xF  // v
 		};
 
-		document.addEventListener("keydown", function(event) {setKeyDown(keyMap[event.keyCode])})
+		document.addEventListener("keydown", function(event) {
+			if (audioCtx && audioCtx.state === 'suspended') {
+				audioCtx.resume();
+			}
+			setKeyDown(keyMap[event.keyCode]);
+		})
 		document.addEventListener("keyup", function(event) {setKeyUp(keyMap[event.keyCode])})
     }
 
@@ -395,15 +309,33 @@ var Chip8 = (function () {
 		drawFlag = true;
 	}
 
+	var animFrameId = null;
+
 	var getRom = function(romName) {
+		if (animFrameId !== null) {
+			cancelAnimationFrame(animFrameId);
+			animFrameId = null;
+		}
 		xhr = new XMLHttpRequest();
 		romPath = "./roms/" + romName;
         xhr.open("GET", romPath, true);
         xhr.overrideMimeType("text/plain; charset=x-user-defined");
 
         xhr.onload = function () {
+        	if (xhr.status !== 0 && xhr.status !== 200) {
+        		console.error('ROM load failed: HTTP ' + xhr.status + ' for ' + romPath);
+        		var st = document.getElementById('statusText');
+        		if (st) st.textContent = 'ERROR: ROM NOT FOUND – ' + romName;
+        		return;
+        	}
         	loadRom(xhr.responseText);
-        	requestAnimationFrame(runCycle);
+        	animFrameId = requestAnimationFrame(runCycle);
+        };
+
+        xhr.onerror = function() {
+        	console.error('ROM load error for ' + romPath);
+        	var st = document.getElementById('statusText');
+        	if (st) st.textContent = 'ERROR: COULD NOT LOAD – ' + romName;
         };
 
         xhr.send(null);
@@ -416,6 +348,7 @@ var Chip8 = (function () {
 	}
 
 	var runCycle = function() {
+		vblank = true;
 		for(var ii = 0; ii < 10; ii++) {
 			if((isDebugMode && doStep) || !isDebugMode) {
 				emulateCycle();
@@ -433,7 +366,7 @@ var Chip8 = (function () {
 
 		updateTimers();
 
-		requestAnimationFrame(runCycle);
+		animFrameId = requestAnimationFrame(runCycle);
 	}
 
 	var updateTimers = function() {
@@ -442,8 +375,10 @@ var Chip8 = (function () {
 		}
 
 		if(soundTimer > 0) {
-			// todo: beep!
+			startBeep();
 			soundTimer--;
+		} else {
+			stopBeep();
 		}
 	}
 
@@ -559,65 +494,78 @@ var Chip8 = (function () {
 					case 0x1:
 						/*
 						8xy1 - OR Vx, Vy
-						Set Vx = Vx OR Vy
+						Set Vx = Vx OR Vy, VF = 0
 						*/
 						v[x] |= v[y];
+						v[0xF] = 0;
 						break;
 					case 0x2:
 						/*
 						8xy2 - AND Vx, Vy
-						Set Vx = Vx AND Vy
+						Set Vx = Vx AND Vy, VF = 0
 						*/
 						v[x] &= v[y];
+						v[0xF] = 0;
 						break;
 					case 0x3:
 						/*
 						8xy3 - XOR Vx, Vy
-						Set Vx = Vx XOR Vy
+						Set Vx = Vx XOR Vy, VF = 0
 						*/
 						v[x] ^= v[y];
+						v[0xF] = 0;
 						break;
-					case 0x4:
+					case 0x4: {
 						/*
 						8xy4 - ADD Vx, Vy
 						Set Vx = Vx + Vy, set VF = carry
 						*/
-						v[x] += v[y];
-						v[0xF] = v[x] > 255 ? 1 : 0;
-						v[x] = (v[x] & 0xFF);
+						var sum = v[x] + v[y];
+						var carry = sum > 255 ? 1 : 0;
+						v[x] = sum & 0xFF;
+						v[0xF] = carry;
 						break;
-					case 0x5:
+					}
+					case 0x5: {
 						/*
 						8xy5 - SUB Vx, Vy
 						Set Vx = Vx - Vy, set VF = NOT borrow
 						*/
-						v[0xF] = v[x] > v[y] ? 1 : 0;
+						var notBorrow = v[x] >= v[y] ? 1 : 0;
 						v[x] = (v[x] - v[y]) & 0xFF;
+						v[0xF] = notBorrow;
 						break;
-					case 0x6:
+					}
+					case 0x6: {
 						/*
 						8xy6 - SHR Vx {, Vy}
-						Set Vx = Vx SHR 1
+						Set Vx = Vx SHR 1, VF = shifted out bit
 						*/
-						v[0xF] = v[x] & 0x1;
+						var lsb = v[x] & 0x1;
 						v[x] = v[x] >>> 1;
+						v[0xF] = lsb;
 						break;
-					case 0x7:
+					}
+					case 0x7: {
 						/*
 						8xy7 - SUBN Vx, Vy
 						Set Vx = Vy - Vx, set VF = NOT borrow
 						*/
-						v[0xF] = v[y] > v[x] ? 1 : 0;
-						v[x] = (v[y] - v[x]) & 0xFF
+						var notBorrow7 = v[y] >= v[x] ? 1 : 0;
+						v[x] = (v[y] - v[x]) & 0xFF;
+						v[0xF] = notBorrow7;
 						break;
-					case 0xE:
+					}
+					case 0xE: {
 						/*
 						8xyE - SHL Vx {, Vy}
-						Set Vx = Vx SHL 1
+						Set Vx = Vx SHL 1, VF = shifted out bit
 						*/
-						v[0xF] = (v[x] & 0x80) === 0x80 ? 1 : 0;
+						var msb = (v[x] & 0x80) === 0x80 ? 1 : 0;
 						v[x] = (v[x] << 1) & 0xFF;
+						v[0xF] = msb;
 						break;
+					}
 				}
 				break;
 			case 0x9000:
@@ -657,21 +605,34 @@ var Chip8 = (function () {
 			case 0xD000:
 				/*
 				Dxyn - DRW Vx, Vy, nibble
-				Display n-byte sprite starting at memory location I at (Vx, Vy), set VF = collision
+				Sprites are clipped at screen boundaries.
+				Display wait: if no vblank this frame, rewind PC and yield.
 				*/
 				x = (opcode & 0x0F00) >> 8;
 				y = (opcode & 0x00F0) >> 4;
 				n = opcode & 0x000F;
-				
+
+				if (!vblank) {
+					pc -= 2;
+					break;
+				}
+				vblank = false;
+
+				var startX = v[x] % DISPLAY_WIDTH;
+				var startY = v[y] % DISPLAY_HEIGHT;
 				isPixelErased = false;
-				for(var byte = 0; byte < n; byte++) {
-					rowIdx = (v[y] + byte) * DISPLAY_WIDTH + v[x];
-					var spriteChar = memory[i+byte];
+				for(var byteIdx = 0; byteIdx < n; byteIdx++) {
+					var py = startY + byteIdx;
+					if (py >= DISPLAY_HEIGHT) break;
+					var spriteChar = memory[i + byteIdx];
 					for(var bit = 0; bit < 8; bit++) {
-						currPixel = display[rowIdx + bit];
+						var px = startX + bit;
+						if (px >= DISPLAY_WIDTH) break;
+						var pidx = py * DISPLAY_WIDTH + px;
+						currPixel = display[pidx];
 						newPixel = (spriteChar & 0x80) > 0 ? 1 : 0;
-						display[rowIdx + bit] ^= newPixel;
-						if(currPixel == 1 && display[rowIdx + bit] == 0) {
+						display[pidx] ^= newPixel;
+						if(currPixel == 1 && display[pidx] == 0) {
 							isPixelErased = true;
 						}
 						spriteChar = spriteChar << 1;
@@ -680,6 +641,7 @@ var Chip8 = (function () {
 				v[0xF] = isPixelErased ? 1 : 0;
 				drawFlag = true;
 				break;
+
 			case 0xE000:
 				x = (opcode & 0x0F00) >>> 8;
 				switch(opcode & 0x00FF) {
@@ -720,16 +682,22 @@ var Chip8 = (function () {
 					case 0x0A:
 						/*
 						Fx0A - LD Vx, K
-						Wait for a key press, store the value of the key in Vx
+						Wait for a key press then release, store the value of the key in Vx.
+						Phase 1: no key detected yet - rewind and wait until any key is held.
+						Phase 2: key detected - rewind and wait until it is released, then store.
 						*/
-						if(keyPresses.length > 0) {
-							//paused = false;
-							for(var key in keyPresses) {
-								v[x] = key;
+						if (waitKeyReleased !== null) {
+							if (!keyPresses[waitKeyReleased]) {
+								v[x] = waitKeyReleased;
+								waitKeyReleased = null;
+							} else {
+								pc -= 2;
 							}
-						}
-						else {
-							//paused = true;
+						} else {
+							var heldKeys = Object.keys(keyPresses);
+							if (heldKeys.length > 0) {
+								waitKeyReleased = Number(heldKeys[0]);
+							}
 							pc -= 2;
 						}
 						break;
@@ -1353,4 +1321,3 @@ var Chip8 = (function () {
 		test: test
 	}
 })();
-
